@@ -1,14 +1,15 @@
+
 locals {
-  project                        = "qwiklabs-gcp-02-ef7a96eb569c"
+  project                        = "qwiklabs-gcp-03-6342650d30bd"
   network_name                   = "default"
   subnetwork_name                = "default"
-  forwarding_rule_name           = "cepf-infra-lb"
-  mig_name                       = "cepf-infra-lb-group1-mig"
+  forwarding_rule_name           = "cepf-app-lb"
+  mig_name                       = "cepf-app-lb-group1-mig"
   service_port                   = "80"
-  region                         = "us-central1"
+  region                         = "us-east1"
   zone                           = "${local.region}-b"
   load_balancer_session_affinity = "GENERATED_COOKIE"
-  load_balancer_backend_name     = "cepf-infra-lb-backend-default"
+  load_balancer_backend_name     = "cepf-app-lb-backend-default"
   disable_health_check           = false
   protocol                       = "HTTP"
   service_account_email          = "<service_account_email>"
@@ -26,11 +27,6 @@ locals {
   db_database = "cepf-db"
 }
 
-data "google_compute_image" "startup_image" {
-  family  = "debian-11"
-  project = "debian-cloud"
-}
-
 terraform {
   required_providers {
     google = {
@@ -40,8 +36,14 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "${local.project}-bucket-tfstate"
+    bucket = "qwiklabs-gcp-03-6342650d30bd-bucket-tfstate"
   }
+}
+
+
+data "google_compute_image" "startup_image" {
+  family  = "debian-11"
+  project = "debian-cloud"
 }
 
 
@@ -64,7 +66,7 @@ resource "google_compute_global_address" "this" {
   name = "${local.project}-ipv4"
 }
 
-resource "google_compute_url_map" "default" {
+resource "google_compute_url_map" "http" {
   project         = local.project
   name            = "${local.project}-url-map"
   default_service = google_compute_backend_service.this.self_link
