@@ -1,18 +1,18 @@
 
 locals {
-  project                        = "qwiklabs-gcp-03-6342650d30bd"
+  project                        = "qwiklabs-gcp-01-dc8a64c6cb64"
   network_name                   = "default"
   subnetwork_name                = "default"
-  forwarding_rule_name           = "cepf-app-lb"
-  mig_name                       = "cepf-app-lb-group1-mig"
+  forwarding_rule_name           = "cepf-lb-http"
+  mig_name                       = "cepf-lb-http-group1-mig"
   service_port                   = "80"
-  region                         = "us-east1"
-  zone                           = "${local.region}-b"
+  region                         = "us-west1"
+  zone                           = "${local.region}-a"
   load_balancer_session_affinity = "GENERATED_COOKIE"
-  load_balancer_backend_name     = "cepf-app-lb-backend-default"
+  load_balancer_backend_name     = "cepf-lb-http-backend-default"
   disable_health_check           = false
   protocol                       = "HTTP"
-  service_account_email          = "qwiklabs-gcp-03-6342650d30bd@qwiklabs-gcp-03-6342650d30bd.iam.gserviceaccount.com"
+  service_account_email          = "qwiklabs-gcp-01-dc8a64c6cb64@qwiklabs-gcp-01-dc8a64c6cb64.iam.gserviceaccount.com"
   min_replicas                   = 2
   max_replicas                   = 4
   cpu_utilization_target         = 0.6
@@ -36,7 +36,7 @@ terraform {
   }
 
   backend "gcs" {
-    bucket = "qwiklabs-gcp-03-6342650d30bd-bucket-tfstate"
+    bucket = "qwiklabs-gcp-01-dc8a64c6cb64-bucket-tfstate"
   }
 }
 
@@ -50,7 +50,6 @@ data "google_compute_image" "startup_image" {
 provider "google" {
   project = local.project
   region  = local.region
-  zone    = local.zone
 }
 
 
@@ -104,7 +103,7 @@ resource "google_compute_backend_service" "this" {
   health_checks = [google_compute_health_check.this.id]
 
   backend {
-    group                 = google_compute_instance_group_manager.this.instance_group
+    group                 = google_compute_region_instance_group_manager.this.instance_group
     balancing_mode        = "UTILIZATION"
     capacity_scaler       = 1.0
   }
@@ -124,12 +123,13 @@ resource "google_compute_health_check" "this" {
   unhealthy_threshold = 2
 }
 
-resource "google_compute_instance_group_manager" "this" {
+resource "google_compute_region_instance_group_manager" "this" {
   name    = local.mig_name
   project = local.project
 
   base_instance_name = local.project
-  zone               = local.zone
+  region = local.region
+  distribution_policy_zones = ["${local.region}-a", "${local.region}-b"]
 
   version {
     name = local.deploy_version
@@ -141,14 +141,6 @@ resource "google_compute_instance_group_manager" "this" {
   named_port {
     name = "http"
     port = tonumber(local.service_port)
-  }
-
-  update_policy {
-    type                  = "PROACTIVE"
-    minimal_action        = "REPLACE"
-    max_surge_percent     = 100
-    max_unavailable_fixed = 0
-    replacement_method    = "SUBSTITUTE"
   }
 }
 
@@ -205,7 +197,7 @@ resource "google_compute_autoscaler" "this" {
   project = local.project
   zone    = local.zone
   # Note!
-  target  = google_compute_instance_group_manager.this.self_link
+  target  = google_compute_region_instance_group_manager.this.self_link_unique
 
   autoscaling_policy {
     max_replicas    = local.max_replicas
