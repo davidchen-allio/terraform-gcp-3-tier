@@ -136,12 +136,17 @@ resource "google_compute_region_instance_group_manager" "this" {
     instance_template = google_compute_instance_template.this.id
   }
 
+target_pools       = [google_compute_target_pool.this.id]
   target_size = local.min_replicas
 
   named_port {
     name = "http"
     port = tonumber(local.service_port)
   }
+}
+
+resource "google_compute_target_pool" "this" {
+  name = "my-target-pool"
 }
 
 resource "google_compute_instance_template" "this" {
@@ -192,12 +197,13 @@ resource "google_compute_instance_template" "this" {
 }
 
 
-resource "google_compute_autoscaler" "this" {
+resource "google_compute_region_autoscaler" "this" {
   name    = "${local.project}-autoscaler"
   project = local.project
-  zone    = local.zone
+  region = local.region
+
   # Note!
-  target  = google_compute_region_instance_group_manager.this.self_link_unique
+  target  = google_compute_region_instance_group_manager.this.id
 
   autoscaling_policy {
     max_replicas    = local.max_replicas
