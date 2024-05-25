@@ -12,7 +12,7 @@ locals {
   load_balancer_backend_name     = "cepf-app-lb-backend-default"
   disable_health_check           = false
   protocol                       = "HTTP"
-  service_account_email          = "<service_account_email>"
+  service_account_email          = "qwiklabs-gcp-03-6342650d30bd@qwiklabs-gcp-03-6342650d30bd.iam.gserviceaccount.com"
   min_replicas                   = 2
   max_replicas                   = 4
   cpu_utilization_target         = 0.6
@@ -64,53 +64,64 @@ data "google_compute_subnetwork" "subnet" {
 
 resource "google_compute_global_address" "this" {
   name = "${local.project}-ipv4"
+  ip_version = "IPV4"
 }
 
 resource "google_compute_url_map" "http" {
   project         = local.project
   name            = "${local.project}-url-map"
-  default_service = google_compute_backend_service.this.self_link
+  default_service = google_compute_backend_service.this.id
 }
 
 resource "google_compute_target_http_proxy" "http" {
   name    = "${local.project}-http"
-  url_map = google_compute_url_map.http.self_link
+  url_map = google_compute_url_map.http.id
 }
 
 resource "google_compute_global_forwarding_rule" "http" {
   name       = local.forwarding_rule_name
-  target     = google_compute_target_http_proxy.http.self_link
-  ip_address = google_compute_global_address.this.address
-  port_range = local.service_port
+  ip_protocol = "TCP"
+  load_balancing_scheme = "EXTERNAL_MANAGED"
+  target     = google_compute_target_http_proxy.http.id
+  ip_address = google_compute_global_address.this.id
+  port_range = "${local.service_port}-${local.service_port}"
 }
 
 output "Loadbalancer-IPv4-Address" {
-  value = google_compute_global_address.this.address
+  value = google_compute_global_address.this.id
 }
 
 resource "google_compute_backend_service" "this" {
   name        = local.load_balancer_backend_name
   port_name   = "http"
   protocol    = local.protocol
-  timeout_sec = 10
+  timeout_sec = 30
+  connection_draining_timeout_sec = 0
 
   session_affinity = local.load_balancer_session_affinity
+  load_balancing_scheme           = "EXTERNAL_MANAGED"
 
-  health_checks = [google_compute_http_health_check.this.id]
+  health_checks = [google_compute_health_check.this.id]
 
   backend {
     group                 = google_compute_instance_group_manager.this.instance_group
-    balancing_mode        = "RATE"
+    balancing_mode        = "UTILIZATION"
     capacity_scaler       = 1.0
-    max_rate_per_instance = 500
   }
 }
 
-resource "google_compute_http_health_check" "this" {
+resource "google_compute_health_check" "this" {
   name               = "${local.project}-healthcheck"
-  request_path       = "/"
-  check_interval_sec = 1
-  timeout_sec        = 1
+  check_interval_sec = 5
+  healthy_threshold  = 2
+   http_health_check {
+    port = tonumber(local.service_port)
+    port_specification = "USE_FIXED_PORT"
+    proxy_header       = "NONE"
+    request_path       = "/"
+  }
+  timeout_sec         = 5
+  unhealthy_threshold = 2
 }
 
 resource "google_compute_instance_group_manager" "this" {
@@ -128,13 +139,8 @@ resource "google_compute_instance_group_manager" "this" {
   target_size = local.min_replicas
 
   named_port {
-    name = "web"
+    name = "http"
     port = tonumber(local.service_port)
-  }
-
-  auto_healing_policies {
-    health_check      = google_compute_health_check.autohealing.id
-    initial_delay_sec = 60
   }
 
   update_policy {
@@ -146,23 +152,11 @@ resource "google_compute_instance_group_manager" "this" {
   }
 }
 
-resource "google_compute_health_check" "autohealing" {
-  name                = "${local.project}-autohealing"
-  check_interval_sec  = 30
-  timeout_sec         = 30
-  healthy_threshold   = 10
-  unhealthy_threshold = 30
-
-  http_health_check {
-    request_path = "/"
-    port         = local.service_port
-  }
-}
-
 resource "google_compute_instance_template" "this" {
   name = local.mig_name
 
   tags = ["gaoxuan"]
+  region = local.region
 
   labels = {
     service = local.project
@@ -180,6 +174,7 @@ resource "google_compute_instance_template" "this" {
   scheduling {
     automatic_restart   = true
     on_host_maintenance = "MIGRATE"
+    provisioning_model = "STANDARD"
   }
 
   disk {
@@ -209,6 +204,7 @@ resource "google_compute_autoscaler" "this" {
   name    = "${local.project}-autoscaler"
   project = local.project
   zone    = local.zone
+  # Note!
   target  = google_compute_instance_group_manager.this.self_link
 
   autoscaling_policy {
@@ -225,6 +221,7 @@ resource "google_compute_autoscaler" "this" {
 resource "google_compute_firewall" "this" {
   name    = "${local.project}-allow-healthcheck"
   network = data.google_compute_network.network.name
+  direction     = "INGRESS"
 
   allow {
     protocol = "tcp"
